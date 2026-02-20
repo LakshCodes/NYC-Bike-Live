@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>NYC Bike Live — Empty Risk</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { height: 100vh; width: 100vw; }
+    #status {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 9999;
+      background: rgba(255,255,255,0.95);
+      padding: 10px 12px;
+      border-radius: 10px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.15);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 13px;
+      max-width: 360px;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="status">Loading…</div>
+  <div id="map"></div>
+
+  <script>
+    // If any JS error happens, show it ON the page
+    window.onerror = function (msg, src, line, col, err) {
+      const s = document.getElementById("status");
+      s.textContent = `JS ERROR:\n${msg}\n${src}:${line}:${col}`;
+    };
+
+    const STATUS = (t) => { document.getElementById("status").textContent = t; };
+
+    // IMPORTANT: use 127.0.0.1 (your backend is reachable here)
+    const GEOJSON_URL = "http://127.0.0.1:8000/live.geojson";
+
+    STATUS("Leaflet starting…");
+
+    // Create map (this should show tiles even if GeoJSON fails)
+    const map = L.map("map").setView([40.73, -73.94], 12);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    // Test marker: if you don't see this, your JS isn't running
+    L.marker([40.73, -73.94]).addTo(map).bindPopup("Test marker");
+
+    function getColor(risk) {
+      if (risk >= 0.70) return "#d73027";
+      if (risk >= 0.40) return "#fc8d59";
+      if (risk >= 0.20) return "#fee08b";
+      return "#1a9850";
+    }
+
+    let stationLayer = null;
+
+    async function refresh() {
+      try {
+        STATUS("Fetching live geojson…");
+
+        const res = await fetch(GEOJSON_URL, { cache: "no-store" });
+        STATUS(`GeoJSON HTTP ${res.status}…`);
+
+      if (!res.ok) 
+      {
+         const text = await res.text();
+         throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
+      }
+
+const data = await res.json();
+
+        const n = (data && data.features && data.features.length) ? data.features.length : 0;
+        STATUS(`GeoJSON loaded.\nFeatures: ${n}\nUpdating map…`);
+
+        if (stationLayer) {
+          stationLayer.remove();
+          stationLayer = null;
+        }
+
+        stationLayer = L.geoJSON(data, {
+          pointToLayer: (feature, latlng) => {
+            const p = feature.properties || {};
+            const risk = Number(p.p_empty_30 || 0);
+
+            return L.circleMarker(latlng, {
+              radius: 7,
+              color: "#000",
+              weight: 1,
+              fillColor: getColor(risk),
+              fillOpacity: 0.9
+            });
+          },
+          onEachFeature: (feature, layer) => {
+            const p = feature.properties || {};
+            layer.bindPopup(
+              `<b>${p.name ?? p.station_id ?? "Station"}</b><br>` +
+              `Bikes: ${p.bikes_now} | Docks: ${p.docks_now}<br>` +
+              `Empty risk: ${(Number(p.p_empty_30 || 0) * 100).toFixed(1)}%`
+            );
+          }
+        }).addTo(map);
+
+        // Zoom to points once
+        if (!window._fitDone && stationLayer.getLayers().length > 0) {
+          const b = stationLayer.getBounds();
+          if (b.isValid()) map.fitBounds(b, { padding: [20, 20] });
+          window._fitDone = true;
+        }
+
+        STATUS(`Rendered.\nFeatures: ${n}\nAuto-refresh every 60s.`);
+      } catch (err) {
+        STATUS("FETCH ERROR:\n" + (err?.message || String(err)));
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 60_000);
+  </script>
+</body>
+</html>

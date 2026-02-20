@@ -1,0 +1,18 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Backend venv
+backend/venv/
+
+# Database (DON’T upload this)
+backend/app/data/
+*.db
+
+# Models (optional: remove this line if you want models on GitHub)
+backend/models/*.joblib
+
+# OS junk
+.DS_Store
+Thumbs.db
